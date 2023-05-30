@@ -17,10 +17,8 @@ object Main {
     val int_steps = 50 // важный параметр
     val s0 = -0.01
     val S = 0.85
-    def bmat(c:DenseVector[Double]) = {
-      DenseMatrix.tabulate(m, m){case (i, j) => trapezoid(s => phi(s)(i) * phi(s)(j), s0, S, int_steps)}
-    }
-    val x0 = 1.1 // важный параметр
+    val bmat = DenseMatrix.tabulate(m, m){case (i, j) => trapezoid(s => phi(s)(i) * phi(s)(j), s0, S, int_steps)}
+    val x0 = 2.3 // важный параметр
     val chi = (x0*x0 - 1)/(x0*x0 + 1)
     val epsilon0 = 1 // почему? важный параметр?
     val epsilon   = epsilon0/sqrt(1 - chi*chi)
@@ -93,7 +91,7 @@ object Main {
         0, 2 * Pi, int_steps))
     val alpha = 0.05 // важный параметр
     def step(c: DenseVector[Double]) = {
-      inv(jacmat(c).t * jacmat(c) + alpha * bmat(c)) * (jacmat(c).t * (avec(c) - gvec) + alpha * bmat(c) * c)
+      inv(jacmat(c).t * jacmat(c) + alpha * bmat) * (jacmat(c).t * (avec(c) - gvec) + alpha * bmat * c)
     }
     var c = DenseVector.ones[Double](m)
     for (i <- 1 to 100) {
