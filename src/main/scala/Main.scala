@@ -1,30 +1,54 @@
 import math._
 import breeze.linalg._
 import breeze.integrate._
+import breeze.plot._
 object Main {
   def main(args: Array[String]): Unit = {
     val m = 7
-    def phi(s: Double, derivativeOrder: Int = 0) = {
-      derivativeOrder match {
-        case 0 => DenseVector.tabulate(m){i => pow(s, i)}
-        case 1 => DenseVector.tabulate(m){i => i * pow(s, i-1)}
-        case 2 => DenseVector.tabulate(m){i => i * (i-1) * pow(s, i-2)}
+    def phiOld(s: Double, derivativeOrder: Int = 0) = {
+      DenseVector.tabulate(m){
+        i =>
+          derivativeOrder match {
+            case 0 => pow(s, i)
+            case 1 => i * pow(s, i-1)
+            case 2 => i * (i-1) * pow(s, i-2)
+          }
       }
     }
+    def binom(n: Int, k: Int): Double = {
+      require(0 <= k && k <= n)
+      @annotation.tailrec
+      def binomtail(nIter: Int, kIter: Int, ac: Double): Double = {
+        if (kIter > k) ac
+        else binomtail(nIter + 1, kIter + 1, (nIter * ac) / kIter)
+      }
+      if (k == 0 || k == n) 1
+      else binomtail(n - k + 1, 1, 1.0)
+    }
+    val s0 = -0.01
+    val S = 0.85
+    def phi(s: Double, derivativeOrder: Int = 0) = {
+      DenseVector.tabulate(m){
+        i => {
+          val x = 2*(s - s0)/(S - s0) - 1
+          (0 to i).map(k => binom(i, k) * binom(k + i, k) * pow((x - 1)/2, k)).sum
+        }
+      }
+    }
+
     def tfunc(c: DenseVector[Double], s: Double, derivativeOrder: Int = 0) = {
       c.t * phi(s, derivativeOrder)
     }
     val int_steps = 50 // важный параметр
-    val s0 = -0.01
-    val S = 0.85
-    val bmat = DenseMatrix.tabulate(m, m){case (i, j) => trapezoid(s => phi(s)(i) * phi(s)(j), s0, S, int_steps)}
-    val x0 = 2.3 // важный параметр
+    //val bmat = DenseMatrix.tabulate(m, m){case (i, j) => trapezoid(s => phi(s)(i) * phi(s)(j), s0, S, int_steps)}
+    val bmat = DenseMatrix.tabulate(m, m){(i, j) => if (i == j) 0.86/(2*i + 1) else 0}
+    val x0 = 1.6 // важный параметр
     val chi = (x0*x0 - 1)/(x0*x0 + 1)
     val epsilon0 = 1 // почему? важный параметр?
     val epsilon   = epsilon0/sqrt(1 - chi*chi)
     val d = 2 // важный параметр
     val sigma0 = sqrt(2) * d
-    def sigma(t: Double) = {
+    def sigma(t: Double) = {DenseMatrix.eye[Double](m)
       sigma0/sqrt(1 - (t*chi)/(1 - chi*chi))
     }
     def afunc(t: Double, r: Double) = {
@@ -39,9 +63,9 @@ object Main {
     def bigFfunc(t: Double, r: Double) = {
       exp(-uappr(t, r))/0.86
     }
-    val n = 10
+    val n = 50
     val rdisc = DenseVector.tabulate(n){i => 0.9 * d + 1.2 * d * i / n}
-    def jacmat(c: DenseVector[Double]) = {
+    def jacmatByParts(c: DenseVector[Double]) = {
       DenseMatrix.tabulate(n, m) { case (i, j) =>
         def temp_func(s: Double) = bigFfunc(tfunc(c, s), rdisc(i)) * phi(s)(j)/tfunc(c, s, 1)
         temp_func(S) - temp_func(s0) - trapezoid(
@@ -51,6 +75,26 @@ object Main {
               - phi(s)(j) * tfunc(c, s, 2))/
             (tfunc(c, s, 1)*tfunc(c, s, 1))
           , s0, S, int_steps)
+      }
+    }
+    var stepnum = 0
+    def nanprobe(arg: Double) = {
+      stepnum = stepnum + 1
+      if (arg.isNaN) throw new Exception("nan found at step " + stepnum) else println(arg)
+      arg
+    }
+    def jacmatAnal(c: DenseVector[Double]) = {
+      DenseMatrix.tabulate(n, m) { case (i, j) =>
+        trapezoid(
+          s => {
+            val t = tfunc(c, s)
+            val r = rdisc(i)
+            if (r <= rcrit(t))
+              bigFfunc(t, r) * 4 * epsilon * (12*pow(afunc(t, r), 11) - 6 * pow(afunc(t, r), 5)) *
+              sigma0 / ((r-sigma(t)+sigma0) * (r-sigma(t)+sigma0)) *
+              sigma0 * pow(1 - (t*chi)/(1 - chi*chi), - 3 / 2) * chi / (chi*chi - 1)
+            else 0
+          }, s0, S, int_steps)
       }
     }
     def avec(c: DenseVector[Double]) = {
@@ -82,21 +126,24 @@ object Main {
       exp(- uOriginal(t, z, f, r)) * sin(z) * sin (t) / (8 * Pi)
     }
     val gvec = rdisc.map(r =>
-      trapezoid(t =>
+      trapezoid(f =>
         trapezoid(z =>
-          trapezoid(f =>
+          trapezoid(t =>
             bigFfuncOriginal(t, z, f, r),
             0, Pi, int_steps),
           0, Pi, int_steps),
         0, 2 * Pi, int_steps))
-    val alpha = 0.05 // важный параметр
-    def step(c: DenseVector[Double]) = {
+    val alpha = 0.05  // важный параметр
+    def step(c: DenseVector[Double], jacmat: DenseVector[Double] => DenseMatrix[Double]) = {
       inv(jacmat(c).t * jacmat(c) + alpha * bmat) * (jacmat(c).t * (avec(c) - gvec) + alpha * bmat * c)
     }
-    var c = DenseVector.ones[Double](m)
-    for (i <- 1 to 100) {
-      c = c - step(c)
-      println(c)
+    val c = DenseVector.ones[Double](m)
+    for (_ <- 1 to 100) {
+      c -= step(c, jacmatAnal)
     }
+    val f = Figure()
+    val p = f.subplot(0)
+    p += plot(rdisc, gvec, '.')
+    p += plot(rdisc, avec(c))
   }
 }
