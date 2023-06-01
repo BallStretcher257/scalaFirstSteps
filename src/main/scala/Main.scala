@@ -5,7 +5,7 @@ import breeze.plot._
 object Main {
   def main(args: Array[String]): Unit = {
     val m = 7
-    def phiOld(s: Double, derivativeOrder: Int = 0) = {
+    def phi(s: Double, derivativeOrder: Int = 0) = {
       DenseVector.tabulate(m){
         i =>
           derivativeOrder match {
@@ -27,7 +27,7 @@ object Main {
     }
     val s0 = -0.01
     val S = 0.85
-    def phi(s: Double, derivativeOrder: Int = 0) = {
+    def phiNew(s: Double, derivativeOrder: Int = 0) = {
       DenseVector.tabulate(m){
         i => {
           val x = 2*(s - s0)/(S - s0) - 1
@@ -35,17 +35,27 @@ object Main {
         }
       }
     }
+    def phiOld(s: Double, derivativeOrder: Int = 0) = {
+      val x = 2*(s - s0)/(S - s0) - 1
+      def legepoly(i: Int): Double = i match {
+        case 0 => 1
+        case 1 => x
+        case _ => ((2 * i - 1) * x * legepoly(i - 1) - (i - 1) * legepoly(i - 2)) / (i)
+      }
+      DenseVector.tabulate(m){legepoly}
+    }
 
     def tfunc(c: DenseVector[Double], s: Double, derivativeOrder: Int = 0) = {
       c.t * phi(s, derivativeOrder)
     }
     val int_steps = 50 // важный параметр
-    //val bmat = DenseMatrix.tabulate(m, m){case (i, j) => trapezoid(s => phi(s)(i) * phi(s)(j), s0, S, int_steps)}
-    val bmat = DenseMatrix.tabulate(m, m){(i, j) => if (i == j) 0.86/(2*i + 1) else 0}
-    val x0 = 1.6 // важный параметр
+    val bmat = DenseMatrix.tabulate(m, m){case (i, j) => trapezoid(s => phi(s)(i) * phi(s)(j), s0, S, int_steps)}
+    //val bmat = DenseMatrix.tabulate(m, m){(i, j) => if (i == j) 0.86/(2*i + 1) else 0}
+    println(bmat.toString(m,Int.MaxValue))
+    val x0 = 2.3 // важный параметр
     val chi = (x0*x0 - 1)/(x0*x0 + 1)
     val epsilon0 = 1 // почему? важный параметр?
-    val epsilon   = epsilon0/sqrt(1 - chi*chi)
+    val epsilon = epsilon0/sqrt(1 - chi*chi)
     val d = 2 // важный параметр
     val sigma0 = sqrt(2) * d
     def sigma(t: Double) = {DenseMatrix.eye[Double](m)
@@ -92,7 +102,8 @@ object Main {
             if (r <= rcrit(t))
               bigFfunc(t, r) * 4 * epsilon * (12*pow(afunc(t, r), 11) - 6 * pow(afunc(t, r), 5)) *
               sigma0 / ((r-sigma(t)+sigma0) * (r-sigma(t)+sigma0)) *
-              sigma0 * pow(1 - (t*chi)/(1 - chi*chi), - 3 / 2) * chi / (chi*chi - 1)
+              sigma0 * pow(1 - (t*chi)/(1 - chi*chi), - 3 / 2) * chi / (chi*chi - 1) *
+              phi(s)(j)
             else 0
           }, s0, S, int_steps)
       }
@@ -141,6 +152,7 @@ object Main {
     for (_ <- 1 to 100) {
       c -= step(c, jacmatAnal)
     }
+    println(jacmatAnal(c).toString(10,Int.MaxValue))
     val f = Figure()
     val p = f.subplot(0)
     p += plot(rdisc, gvec, '.')
